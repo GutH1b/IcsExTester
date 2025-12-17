@@ -6,7 +6,7 @@ Config file:
 - In the "TimeoutMS" field, entering 0 is used to not limit the runtime of the programs.
 
 Important notes:
-- In Ex4 task2, this application only tests "theoretically finite" string, limited at length 40. 
+- In Ex4 task2, this application only tests "theoretically finite" strings, limited at length 40. 
   make sure to test longer strings yourself.
 
 Contact me if you think anything is wrong/missing.
