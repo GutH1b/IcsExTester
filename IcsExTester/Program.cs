@@ -96,6 +96,7 @@ namespace IcsExTester
 
             KillAllProcesses();
             Console.WriteLine("Done");
+            Console.ReadKey();
         }
 
         static void LoadConfig()
@@ -120,6 +121,7 @@ namespace IcsExTester
 
                 Console.WriteLine($"Created default config at: {configPath}");
                 Console.WriteLine("Please review and update paths as needed, then restart the application.");
+                Console.ReadKey();
                 Environment.Exit(0);
             }
 
