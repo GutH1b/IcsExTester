@@ -57,6 +57,7 @@ namespace IcsExTester
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to read config: {ex.Message}");
+                WriteConfigFile(configPath, "path to exe1", "path to exe2");
                 Environment.Exit(1);
             }
         }
