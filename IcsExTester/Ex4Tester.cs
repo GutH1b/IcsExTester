@@ -4,6 +4,15 @@ namespace IcsExTester
 {
     internal class Ex4Tester : ITester
     {
+        const int MIN_STRING_LENGTH_TASK1 = 1;
+        const int MAX_STRING_LENGTH_TASK1 = 250;
+
+        const int MIN_STRING_LENGTH_TASK2 = 3;
+        const int MAX_STRING_LENGTH_TASK2 = 150;
+
+        const int MIN_STRING_LENGTH_TASK3 = 3;
+        const int MAX_STRING_LENGTH_TASK3 = 150;
+
         private Random rng = new Random();
 
         public string GenerateRandomTest()
@@ -32,41 +41,30 @@ namespace IcsExTester
 
         void GenerateTask1(StringBuilder sb)
         {
-            int len = rng.Next(1, 250);
             const string chars = "abcdefghijklmnopqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ     ";
-            StringBuilder phrase = new StringBuilder();
-            for (int i = 0; i < len; i++) phrase.Append(chars[rng.Next(chars.Length)]);
-            sb.AppendLine(phrase.ToString());
+            string s = ITester.RandomWord(rng, chars, MIN_STRING_LENGTH_TASK1, MAX_STRING_LENGTH_TASK1);
+            sb.AppendLine(s);
         }
 
         void GenerateTask2(StringBuilder sb)
         {
-            int length = rng.Next(1, 40);
+            int length = rng.Next(MIN_STRING_LENGTH_TASK2, MAX_STRING_LENGTH_TASK2);
             sb.AppendLine(length.ToString());
             bool pal = rng.Next(2) == 0;
-            char[] arr = new char[length];
-            for (int i = 0; i < length; i++) arr[i] = (char)('a' + rng.Next(26));
-            if (pal) for (int i = 0; i < length / 2; i++) arr[length - 1 - i] = arr[i];
-            sb.AppendLine(new string(arr));
+            char[] s = ITester.RandomWord(rng, length).ToCharArray();
+            if (pal) for (int i = 0; i < length / 2; i++) s[length - 1 - i] = s[i];
+            sb.AppendLine(s.ToString());
         }
 
         void GenerateTask3(StringBuilder sb)
         {
             int s = rng.Next(1, 4), v = rng.Next(1, 4), o = rng.Next(1, 4);
             sb.AppendLine(s.ToString());
-            for (int i = 0; i < s; i++) sb.AppendLine(RandomWord());
+            for (int i = 0; i < s; i++) sb.AppendLine(ITester.RandomWord(rng, MIN_STRING_LENGTH_TASK3, MAX_STRING_LENGTH_TASK3));
             sb.AppendLine(v.ToString());
-            for (int i = 0; i < v; i++) sb.AppendLine(RandomWord());
+            for (int i = 0; i < v; i++) sb.AppendLine(ITester.RandomWord(rng, MIN_STRING_LENGTH_TASK3, MAX_STRING_LENGTH_TASK3));
             sb.AppendLine(o.ToString());
-            for (int i = 0; i < o; i++) sb.AppendLine(RandomWord());
-        }
-
-        string RandomWord()
-        {
-            int len = rng.Next(1, 20);
-            StringBuilder w = new StringBuilder();
-            for (int i = 0; i < len; i++) w.Append((char)('a' + rng.Next(26)));
-            return w.ToString();
+            for (int i = 0; i < o; i++) sb.AppendLine(ITester.RandomWord(rng, MIN_STRING_LENGTH_TASK3, MAX_STRING_LENGTH_TASK3));
         }
 
         void GenerateTask4(StringBuilder sb)

@@ -1,87 +1,49 @@
 ﻿using System.Diagnostics;
-using System.Text;
-using System.Text.Json;
 
 namespace IcsExTester
 {
     class Program
     {
-        static List<Process> runningProcesses = new List<Process>();
-        static CancellationTokenSource cts = new CancellationTokenSource();
-
-        const int DEFAULT_NUMBER_OF_TESTS = 10;
-        const int DEFAULT_TIMEOUT_MS = 60000;
-        const bool DEFAULT_STOP_ON_FIRST_DIFFERENCE = false;
-        const int DEFAULT_EXNUM = 4;
-
-        // Configurable variables
-        static string exe1;
-        static string exe2;
-        static int numberOfTests;
-        static int timeOutMS;
-        static bool stopOnFirstDifference;
-        static int exNum;
+        static string exe1, exe2, drMemoryExe, version;
+        static int numberOfTests, timeOutMS, exNum;
+        static bool stopOnFirstDifference, checkAllMemoryFreed;
+        static int[] memoryExercises = { 5 };
 
         static void Main(string[] args)
         {
-            LoadConfig();
+            ConfigManager.LoadConfig(ref exe1, ref exe2, ref numberOfTests, ref timeOutMS,
+                ref stopOnFirstDifference, ref exNum, ref drMemoryExe, ref checkAllMemoryFreed, ref version);
 
-            Console.WriteLine("Starting with parameters:");
-            Console.WriteLine($"  Exe1: {exe1}");
-            Console.WriteLine($"  Exe2: {exe2}");
-            Console.WriteLine($"  NumberOfTests: {numberOfTests}");
-            Console.WriteLine($"  TimeoutMS: {(timeOutMS == 0 ? "Unlimited" : timeOutMS.ToString())}");
-            Console.WriteLine($"  StopOnFirstDifference: {stopOnFirstDifference}");
-            Console.WriteLine($"  ExNum: {exNum}");
-            Console.WriteLine();
+            PrintStartingParamaters();
 
-            AppDomain.CurrentDomain.ProcessExit += (s, e) => KillAllProcesses();
-            Console.CancelKeyPress += (s, e) =>
+            AppDomain.CurrentDomain.ProcessExit += (s, e) => ProcessRunner.KillAllProcesses();
+            Console.CancelKeyPress += (s, e) => { e.Cancel = true; ProcessRunner.KillAllProcesses(); Environment.Exit(1); };
+
+            ITester tester = exNum switch
             {
-                e.Cancel = true;
-                KillAllProcesses();
-                Environment.Exit(1);
+                4 => new Ex4Tester(),
+                5 => new Ex5Tester(),
+                6 => new Ex6Tester(),
+                _ => throw new Exception("Unsupported ExNum")
             };
-            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
-            {
-                KillAllProcesses();
-            };
-
-            ITester tester = null;
-            try
-            {
-                tester = exNum switch
-                {
-                    4 => new Ex4Tester(),
-                    5 => new Ex5Tester(),
-                    6 => new Ex6Tester(),
-                    _ => throw new Exception("Unsupported ExNum. Must be 4, 5, or 6.")
-                };
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                Environment.Exit(1);
-            }
 
             bool allPassed = true;
-            Console.WriteLine($"Running {numberOfTests} tests for Ex{exNum}...\n");
 
             for (int test = 1; test <= numberOfTests; test++)
             {
                 string input = tester.GenerateRandomTest();
-
                 Console.WriteLine($"=== Test #{test} ===");
 
-                Task<string> task1 = Task.Run(() => RunProcess(exe1, input, timeOutMS));
-                Task<string> task2 = Task.Run(() => RunProcess(exe2, input, timeOutMS));
+                // --- Normal runs in parallel ---
+                var normalTask1 = Task.Run(() => ProcessRunner.RunProcessTimed(exe1, input, timeOutMS));
+                var normalTask2 = Task.Run(() => ProcessRunner.RunProcessTimed(exe2, input, timeOutMS));
 
-                Task.WaitAll(task1, task2);
+                Task.WaitAll(normalTask1, normalTask2);
 
-                string out1 = task1.Result;
-                string out2 = task2.Result;
+                var (out1, time1) = normalTask1.Result;
+                var (out2, time2) = normalTask2.Result;
 
-                bool same = CompareOutputs(out1, out2, test, stopOnFirstDifference);
+                bool same = TestComparer.CompareOutputs(out1, out2, test, stopOnFirstDifference);
 
                 if (!same)
                 {
@@ -89,167 +51,71 @@ namespace IcsExTester
                     Console.WriteLine($"\nMismatch with input:\n{input}");
                     if (stopOnFirstDifference) break;
                 }
+                Console.WriteLine($"Normal time exe1: {time1/1000.0}(s)");
+                Console.WriteLine($"Normal time exe2: {time2/1000.0}(s)");
+
+                if (same && checkAllMemoryFreed && memoryExercises.Contains(exNum))
+                {
+                    int drTimeout1 = ProcessRunner.ComputeDrMemoryTimeout(time1);
+                    int drTimeout2 = ProcessRunner.ComputeDrMemoryTimeout(time2);
+
+                    var drTask1 = Task.Run(() => ProcessRunner.RunProcessWithDrMemory(exe1, input, drTimeout1, drMemoryExe, true));
+                    var drTask2 = Task.Run(() => ProcessRunner.RunProcessWithDrMemory(exe2, input, drTimeout2, drMemoryExe, true));
+
+                    Task.WaitAll(drTask1, drTask2);
+
+                    var drmOut1 = drTask1.Result;
+                    var drmOut2 = drTask2.Result;
+
+                    string[] res1 = drmOut1.GetFilteredSummaryLines();
+                    string[] res2 = drmOut2.GetFilteredSummaryLines();
+                    if (drmOut1.HasErrors)
+                    {
+                        Console.WriteLine("Dr. Memory reported errors for exe1:");
+                        DrMemoryResult.PrintDrMemoryResult(res1);
+                    }
+                    if (drmOut2.HasErrors)
+                    {
+                        Console.WriteLine($"Dr. Memory reported errors for exe2:");
+                        DrMemoryResult.PrintDrMemoryResult(res2);
+                    }
+                    PrintLeaksWithInput(drmOut1, "exe1", input);
+                    PrintLeaksWithInput(drmOut2, "exe2", input);
+                }
             }
 
-            if (allPassed)
-                Console.WriteLine("\nAll tests completed successfully.\nArgazim Incoming.");
-
-            KillAllProcesses();
-            Console.WriteLine("Done");
-            Console.ReadKey();
+            if (allPassed) Console.WriteLine("\nAll tests passed.");
+            ProcessRunner.KillAllProcesses();
         }
 
-        static void LoadConfig()
+        static void PrintStartingParamaters()
         {
-            string configPath = Path.Combine(AppContext.BaseDirectory, "config.env");
-            if (!File.Exists(configPath))
-            {
-                Console.WriteLine("Config file not found. Creating a new one with default values...");
-
-                var defaultConfig = new Dictionary<string, object>
-                {
-                    { "Exe1", "exe1 path" },
-                    { "Exe2", "exe2 path" },
-                    { "NumberOfTests", DEFAULT_NUMBER_OF_TESTS },
-                    { "TimeoutMS", DEFAULT_TIMEOUT_MS },
-                    { "StopOnFirstDifference", DEFAULT_STOP_ON_FIRST_DIFFERENCE },
-                    { "ExNum", DEFAULT_EXNUM }
-                };
-
-                string json = JsonSerializer.Serialize(defaultConfig, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(configPath, json);
-
-                Console.WriteLine($"Created default config at: {configPath}");
-                Console.WriteLine("Please review and update paths as needed, then restart the application.");
-                Console.ReadKey();
-                Environment.Exit(0);
-            }
-
-            try
-            {
-                string json = File.ReadAllText(configPath);
-                using JsonDocument doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                exe1 = root.GetProperty("Exe1").GetString();
-                exe2 = root.GetProperty("Exe2").GetString();
-
-                numberOfTests = root.TryGetProperty("NumberOfTests", out var nt) ? nt.GetInt32() : DEFAULT_NUMBER_OF_TESTS;
-                timeOutMS = root.TryGetProperty("TimeoutMS", out var tm) ? tm.GetInt32() : DEFAULT_TIMEOUT_MS;
-                stopOnFirstDifference = root.TryGetProperty("StopOnFirstDifference", out var sod) ? sod.GetBoolean() : DEFAULT_STOP_ON_FIRST_DIFFERENCE;
-                exNum = root.TryGetProperty("ExNum", out var ex) ? ex.GetInt32() : DEFAULT_EXNUM;
-
-                if (!File.Exists(exe1))
-                {
-                    Console.WriteLine($"Exe1 not found at path: {exe1}");
-                    Environment.Exit(1);
-                }
-
-                if (!File.Exists(exe2))
-                {
-                    Console.WriteLine($"Exe2 not found at path: {exe2}");
-                    Environment.Exit(1);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to read config: {ex.Message}");
-            }
+            Console.WriteLine("Starting with parameters:");
+            Console.WriteLine($"\tExe1: {exe1}");
+            Console.WriteLine($"\tExe2: {exe2}");
+            Console.WriteLine($"\tNumberOfTests: {numberOfTests}");
+            Console.WriteLine($"\tTimeoutMS: {(timeOutMS == 0 ? "Unlimited" : timeOutMS.ToString())}");
+            Console.WriteLine($"\tStopOnFirstDifference: {stopOnFirstDifference}");
+            Console.WriteLine($"\tExNum: {exNum}");
+            Console.WriteLine($"\tCheckAllMemoryFreed: {checkAllMemoryFreed}");
+            Console.WriteLine($"\tDrMemoryExe: {drMemoryExe}");
+            Console.WriteLine($"\tVersion: {version}");
+            Console.WriteLine();
         }
-
-        static string RunProcess(string exePath, string input, int timeoutMS)
+        static void PrintLeaksWithInput(DrMemoryResult drmResult, string exeName, string input)
         {
-            try
+            var filteredLines = drmResult.GetFilteredSummaryLines();
+
+            // only keep lines that actually mention "leak" or "possible leak"
+            var leakLines = filteredLines
+                .Where(line => line.Contains("leak", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            if (leakLines.Length > 0)
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exePath,
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using var p = new Process { StartInfo = psi };
-                p.Start();
-                runningProcesses.Add(p);
-
-                // Write input
-                using var sw = p.StandardInput;
-                sw.Write(input);
-                if (!input.EndsWith("\n")) sw.Write("\n");
-
-                StringBuilder output = new StringBuilder();
-                using var sr = p.StandardOutput;
-
-                // Determine actual timeout
-                int actualTimeout = (timeoutMS == 0) ? Timeout.Infinite : timeoutMS;
-                bool finished = p.WaitForExit(actualTimeout);
-
-                if (!finished)
-                {
-                    try { p.Kill(true); } catch { }
-                    return $"[TIMEOUT after {timeoutMS} ms]";
-                }
-
-                // Read all output
-                output.Append(sr.ReadToEnd());
-                return output.ToString();
+                Console.WriteLine($"\nDr. Memory reported memory issues for {exeName} with input:\n{input}");
+                DrMemoryResult.PrintDrMemoryResult(leakLines);
             }
-            catch (Exception ex)
-            {
-                return $"[ERROR: {ex.Message}]";
-            }
-        }
-
-        static void KillAllProcesses()
-        {
-            foreach (var p in runningProcesses.ToArray())
-            {
-                try
-                {
-                    if (!p.HasExited)
-                        p.Kill(true);
-                }
-                catch { }
-            }
-            runningProcesses.Clear();
-        }
-
-        static bool CompareOutputs(string a, string b, int testNumber, bool stopOnDiff)
-        {
-            string[] A = a.Replace("\r", "").Split('\n');
-            string[] B = b.Replace("\r", "").Split('\n');
-
-            bool equal = true;
-            int max = Math.Max(A.Length, B.Length);
-
-            for (int i = 0; i < max; i++)
-            {
-                string lineA = i < A.Length ? A[i] : "<missing>";
-                string lineB = i < B.Length ? B[i] : "<missing>";
-
-                if (lineA != lineB)
-                {
-                    equal = false;
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"Difference in test #{testNumber} at line {i + 1}:");
-                    Console.WriteLine($"   A: {lineA}");
-                    Console.WriteLine($"   B: {lineB}");
-                    Console.ResetColor();
-                    if (stopOnDiff) return false;
-                }
-            }
-
-            if (equal)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"Test #{testNumber}: OK");
-                Console.ResetColor();
-            }
-
-            return equal;
         }
     }
 }
