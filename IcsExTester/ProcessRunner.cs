@@ -9,7 +9,7 @@ namespace IcsExTester
         const int DRMEM_GRACE_MS = 1000;
         const int MIN_DRMEM_TIMEOUT = 2000;
 
-        public static List<Process> runningProcesses = new List<Process>();
+        static readonly List<int> runningPids = new();
 
         static ProcessRunner()
         {
@@ -22,46 +22,55 @@ namespace IcsExTester
             };
         }
 
-        public static string RunProcess(string exePath, string input, int timeoutMS)
+        public static string RunProcess(string exePath, string input, int timeoutMS, string? arguments = null)
         {
-            try
+            var psi = new ProcessStartInfo
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exePath,
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                FileName = exePath,
+                Arguments = arguments ?? "",
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
 
-                var p = new Process { StartInfo = psi };
-                p.Start();
-                runningProcesses.Add(p);
+            using var p = new Process { StartInfo = psi };
 
-                using var sw = p.StandardInput;
+            var output = new StringBuilder();
+            var error = new StringBuilder();
+
+            p.OutputDataReceived += (s, e) => { if (e.Data != null) output.AppendLine(e.Data); };
+            p.ErrorDataReceived += (s, e) => { if (e.Data != null) error.AppendLine(e.Data); };
+
+            p.Start();
+            runningPids.Add(p.Id);
+
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+
+            using (var sw = p.StandardInput)
+            {
                 sw.Write(input);
                 if (!input.EndsWith("\n")) sw.Write("\n");
-
-                int actualTimeout = timeoutMS == 0 ? Timeout.Infinite : timeoutMS;
-                bool finished = p.WaitForExit(actualTimeout);
-
-                if (!finished)
-                {
-                    try { p.Kill(true); } catch { }
-                    return $"[TIMEOUT after {timeoutMS} ms]";
-                }
-
-                return p.StandardOutput.ReadToEnd();
             }
-            catch (Exception ex)
+
+            int actualTimeout = timeoutMS == 0 ? Timeout.Infinite : timeoutMS;
+
+            if (!p.WaitForExit(actualTimeout))
             {
-                return $"[ERROR: {ex.Message}]";
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return $"[TIMEOUT after {timeoutMS} ms]";
             }
+
+            // Ensure async readers flush
+            p.WaitForExit();
+
+            return output.ToString();
         }
 
-        public static DrMemoryResult RunProcessWithDrMemory(string exePath, string input, int timeoutMS, string drMemoryExe, bool checkMemory)
+        public static DrMemoryResult RunProcessWithDrMemory(string exePath, string input, int timeoutMS, 
+            string drMemoryExe, bool checkMemory, string? arguments = null)
         {
             var result = new DrMemoryResult();
             if (!checkMemory)
@@ -75,7 +84,7 @@ namespace IcsExTester
                 var psi = new ProcessStartInfo
                 {
                     FileName = drMemoryExe,
-                    Arguments = $"-batch -- \"{exePath}\"",
+                    Arguments = $"-batch -- \"{exePath}\" {arguments}",
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -127,10 +136,11 @@ namespace IcsExTester
             }
         }
 
-        public static (string output, int elapsedMs) RunProcessTimed(string exePath, string input, int timeoutMS)
+        public static (string output, int elapsedMs) RunProcessTimed(string exePath, string input, int timeoutMS, 
+            string? arguments = null)
         {
             var sw = Stopwatch.StartNew();
-            string output = RunProcess(exePath, input, timeoutMS);
+            string output = RunProcess(exePath, input, timeoutMS, arguments);
             sw.Stop();
             return (output, (int)sw.ElapsedMilliseconds);
         }
@@ -143,33 +153,15 @@ namespace IcsExTester
 
         public static void KillAllProcesses()
         {
-            foreach (var p in runningProcesses.ToArray())
+            foreach (var pid in runningPids)
             {
                 try
                 {
-                    if (p == null)
-                        continue;
-
-                    if (!p.HasExited)
-                    {
-                        try
-                        {
-                            p.Kill(entireProcessTree: true);
-                        }
-                        catch { }
-
-                        p.WaitForExit(200);
-                    }
+                    var p = Process.GetProcessById(pid);
+                    p.Kill(true);
                 }
-                catch
-                {
-                    Console.WriteLine($"Failed to terminate process\n" +
-                        $"\tpId: {p.Id}\n\tpName: {p.ProcessName}\nRe-attempting.");
-                }
+                catch { }
             }
-
-            runningProcesses.Clear();
         }
-
     }
 }

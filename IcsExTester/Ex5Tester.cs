@@ -48,7 +48,7 @@ namespace IcsExTester
         #endregion
 
         static Random rng = new Random();
-        public string GenerateRandomTest()
+        public Test GenerateRandomTest()
         {
             StringBuilder sb = new StringBuilder();
 
@@ -66,7 +66,7 @@ namespace IcsExTester
             }
 
             sb.AppendLine(MAIN_MENU_EXIT.ToString());
-            return sb.ToString();
+            return new Test(sb.ToString());
         }
 
         static bool HandleRandomAction(StringBuilder sb, List<string> shows,

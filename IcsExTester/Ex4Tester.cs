@@ -15,7 +15,7 @@ namespace IcsExTester
 
         private Random rng = new Random();
 
-        public string GenerateRandomTest()
+        public Test GenerateRandomTest()
         {
             StringBuilder sb = new StringBuilder();
             int numberOfActions = rng.Next(1, 4);
@@ -36,7 +36,7 @@ namespace IcsExTester
             }
 
             sb.AppendLine("6"); // exit program
-            return sb.ToString();
+            return new Test(sb.ToString());
         }
 
         void GenerateTask1(StringBuilder sb)

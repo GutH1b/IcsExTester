@@ -49,4 +49,18 @@ class DrMemoryResult
         Console.ResetColor(); // final reset
         Console.WriteLine();
     }
+
+    public bool HasDefiniteLeaks()
+    {
+        return GetDefiniteLeakLines().Length > 0;
+    }
+
+    public string[] GetDefiniteLeakLines()
+    {
+        return GetFilteredSummaryLines()
+            .Where(l =>
+                l.Contains("leak", StringComparison.OrdinalIgnoreCase) &&
+               !l.Contains("possible leak", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
 }
