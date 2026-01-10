@@ -61,6 +61,9 @@ namespace IcsExTester
             }
 
             FinishRun(mismatchCount, timeoutCount, leakCount, allPassed);
+
+            Console.WriteLine("\nPress any key to exit");
+            Console.ReadKey();
         }
 
         #region Main loop helpers
@@ -251,7 +254,9 @@ namespace IcsExTester
             Console.WriteLine();
 
             Console.WriteLine($"Total mismatches: {mismatches}");
-            Console.WriteLine($"Total leaks (sum of both programs): {leaks}");
+
+            if (checkAllMemoryFreed)
+                Console.WriteLine($"Total leaks (sum of both programs): {leaks}");
             Console.WriteLine($"Total timeouts: {timeouts}");
 
             if (allPassed)
@@ -280,15 +285,31 @@ namespace IcsExTester
         static void PrintStartingParamaters()
         {
             Console.WriteLine("Starting with parameters:");
+
+            // Executables
             Console.WriteLine($"\tExe1: {exe1}");
             Console.WriteLine($"\tExe2: {exe2}");
+            Console.WriteLine($"\tDrMemoryExe: {drMemoryExe}");
+
+            // Test settings
+            Console.WriteLine($"\tExNum: {exNum}");
             Console.WriteLine($"\tNumberOfTests: {numberOfTests}");
             Console.WriteLine($"\tTimeoutMS: {(timeOutMS == 0 ? "Unlimited" : timeOutMS)}");
             Console.WriteLine($"\tStopOnFirstDifference: {stopOnFirstDifference}");
-            Console.WriteLine($"\tExNum: {exNum}");
+
+            // Memory options
             Console.WriteLine($"\tCheckAllMemoryFreed: {checkAllMemoryFreed}");
-            Console.WriteLine($"\tDrMemoryExe: {drMemoryExe}");
+
+            // Output / debug
+            Console.WriteLine($"\tPrintOnlyFailures: {printOnlyFailures}");
+            Console.WriteLine($"\tDebugInformativeInput: {debugInformativeInput}");
+
+            // Predefined tests
+            Console.WriteLine($"\tPredefinedTests: {(predefinedTests == null ? "None" : predefinedTests.Count.ToString())}");
+
+            // Meta
             Console.WriteLine($"\tVersion: {version}");
+
             Console.WriteLine();
         }
 
